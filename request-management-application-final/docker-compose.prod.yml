@@ -1,0 +1,53 @@
+services:
+  request-management-1:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: request-management-application:prod
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_PORT: 8080
+      DB_URL: ${DB_URL}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_POOL_MIN: ${DB_POOL_MIN:-5}
+      APP_SECURITY_USERNAME: ${APP_SECURITY_USERNAME}
+      APP_SECURITY_PASSWORD: ${APP_SECURITY_PASSWORD}
+      REQUEST_CACHE_MAX_SIZE: ${REQUEST_CACHE_MAX_SIZE:-10000}
+      REQUEST_CACHE_TTL_SECONDS: ${REQUEST_CACHE_TTL_SECONDS:-30}
+    expose:
+      - "8080"
+    restart: unless-stopped
+
+  request-management-2:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: request-management-application:prod
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SERVER_PORT: 8080
+      DB_URL: ${DB_URL}
+      DB_USERNAME: ${DB_USERNAME}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_POOL_MAX: ${DB_POOL_MAX:-20}
+      DB_POOL_MIN: ${DB_POOL_MIN:-5}
+      APP_SECURITY_USERNAME: ${APP_SECURITY_USERNAME}
+      APP_SECURITY_PASSWORD: ${APP_SECURITY_PASSWORD}
+      REQUEST_CACHE_MAX_SIZE: ${REQUEST_CACHE_MAX_SIZE:-10000}
+      REQUEST_CACHE_TTL_SECONDS: ${REQUEST_CACHE_TTL_SECONDS:-30}
+    expose:
+      - "8080"
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.29-alpine
+    depends_on:
+      - request-management-1
+      - request-management-2
+    ports:
+      - "8080:80"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    restart: unless-stopped

@@ -1,0 +1,44 @@
+spring:
+  application:
+    name: request-management-application
+  profiles:
+    default: dev
+  jpa:
+    open-in-view: false
+  lifecycle:
+    timeout-per-shutdown-phase: 30s
+server:
+  port: ${SERVER_PORT:8080}
+  shutdown: graceful
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+app:
+  security:
+    username: ${APP_SECURITY_USERNAME:api-user}
+    password: ${APP_SECURITY_PASSWORD:{noop}change-me}
+  cache:
+    request:
+      max-size: ${REQUEST_CACHE_MAX_SIZE:10000}
+      ttl-seconds: ${REQUEST_CACHE_TTL_SECONDS:30}
+resilience4j:
+  bulkhead:
+    instances:
+      requestRead:
+        maxConcurrentCalls: ${RESILIENCE_READ_BULKHEAD_MAX_CONCURRENT:40}
+        maxWaitDuration: 0
+      requestWrite:
+        maxConcurrentCalls: ${RESILIENCE_WRITE_BULKHEAD_MAX_CONCURRENT:20}
+        maxWaitDuration: 0
+  ratelimiter:
+    instances:
+      requestRead:
+        limitForPeriod: ${RESILIENCE_READ_RATE_LIMIT:100}
+        limitRefreshPeriod: 1s
+        timeoutDuration: 0
+      requestWrite:
+        limitForPeriod: ${RESILIENCE_WRITE_RATE_LIMIT:20}
+        limitRefreshPeriod: 1s
+        timeoutDuration: 0
