@@ -22,7 +22,7 @@ import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-
+import lombok.extern.slf4j.Slf4j;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import java.util.List;
@@ -30,22 +30,18 @@ import java.util.Locale;
 import java.util.Set;
 
 @Service
+@Slf4j
 public class RequestService {
 
     private static final int DEFAULT_PAGE_SIZE = 10;
-
     private static final int MAX_PAGE_SIZE = 100;
 
     private static final Set<String> ALLOWED_SORT_FIELDS = Set.of("createdAt", "updatedAt", "name", "state");
 
     private final RequestRepository requestRepository;
-
     private final RequestAuditRepository auditRepository;
-
     private final RequestStateMachine stateMachine;
-
     private final PublicationNumberGenerator publicationNumberGenerator;
-
 
     public RequestService(RequestRepository requestRepository, RequestAuditRepository auditRepository, RequestStateMachine stateMachine, PublicationNumberGenerator publicationNumberGenerator) {
 
@@ -55,6 +51,9 @@ public class RequestService {
         this.publicationNumberGenerator = publicationNumberGenerator;
     }
 
+    /**
+     * Creates a new request in CREATED state.
+     */
     @Transactional
     @RateLimiter(name = "requestWrite")
     @Bulkhead(name = "requestWrite", type = Bulkhead.Type.SEMAPHORE)
@@ -77,6 +76,11 @@ public class RequestService {
         return RequestResponse.from(entity);
     }
 
+    /**
+     * Retrieves a request by ID.
+     * <p>
+     * Cached for performance.
+     */
     @Transactional(readOnly = true)
     @Cacheable(cacheNames = "requests", key = "#id")
     @RateLimiter(name = "requestRead")
@@ -88,6 +92,9 @@ public class RequestService {
         return RequestResponse.from(getEntity(id));
     }
 
+    /**
+     * Searches requests using optional name and state filters.
+     */
     @Transactional(readOnly = true)
     @RateLimiter(name = "requestRead")
     @Bulkhead(name = "requestRead", type = Bulkhead.Type.SEMAPHORE)
@@ -107,9 +114,16 @@ public class RequestService {
             specification = specification.and((root, query, cb) -> cb.equal(root.get("state"), state));
         }
 
-        return requestRepository.findAll(specification, normalizePageable(pageable)).map(RequestResponse::from);
+        Pageable normalizedPageable = normalizePageable(pageable);
+
+        return requestRepository.findAll(specification, normalizedPageable).map(RequestResponse::from);
     }
 
+    /**
+     * Updates request content.
+     * <p>
+     * Allowed only in CREATED or VERIFIED state.
+     */
     @Transactional
     @CacheEvict(cacheNames = "requests", key = "#id")
     @RateLimiter(name = "requestWrite")
@@ -117,7 +131,6 @@ public class RequestService {
     public RequestResponse updateContent(long id, String content, String actor) {
 
         validatePositiveId(id);
-
         validateActor(actor);
 
         String normalizedContent = normalizeRequired(content, "Request content is required");
@@ -137,6 +150,9 @@ public class RequestService {
         return RequestResponse.from(entity);
     }
 
+    /**
+     * Moves CREATED -> VERIFIED.
+     */
     @Transactional
     @CacheEvict(cacheNames = "requests", key = "#id")
     @RateLimiter(name = "requestWrite")
@@ -144,12 +160,14 @@ public class RequestService {
     public RequestResponse verify(long id, String actor) {
 
         validatePositiveId(id);
-
         validateActor(actor);
 
         return changeState(id, RequestState.VERIFIED, null, actor);
     }
 
+    /**
+     * Moves VERIFIED -> ACCEPTED.
+     */
     @Transactional
     @CacheEvict(cacheNames = "requests", key = "#id")
     @RateLimiter(name = "requestWrite")
@@ -157,12 +175,14 @@ public class RequestService {
     public RequestResponse accept(long id, String actor) {
 
         validatePositiveId(id);
-
         validateActor(actor);
 
         return changeState(id, RequestState.ACCEPTED, null, actor);
     }
 
+    /**
+     * Moves VERIFIED/ACCEPTED -> REJECTED.
+     */
     @Transactional
     @CacheEvict(cacheNames = "requests", key = "#id")
     @RateLimiter(name = "requestWrite")
@@ -170,7 +190,6 @@ public class RequestService {
     public RequestResponse reject(long id, String reason, String actor) {
 
         validatePositiveId(id);
-
         validateActor(actor);
 
         String normalizedReason = normalizeRequired(reason, "A reason is required when rejecting a request");
@@ -178,6 +197,12 @@ public class RequestService {
         return changeState(id, RequestState.REJECTED, normalizedReason, actor);
     }
 
+    /**
+     * Publishes an ACCEPTED request.
+     * <p>
+     * Publication number generation contains its own
+     * database retry logic.
+     */
     @Transactional
     @CacheEvict(cacheNames = "requests", key = "#id")
     @RateLimiter(name = "requestWrite")
@@ -185,7 +210,6 @@ public class RequestService {
     public RequestResponse publish(long id, String actor) {
 
         validatePositiveId(id);
-
         validateActor(actor);
 
         RequestEntity entity = getEntity(id);
@@ -199,9 +223,21 @@ public class RequestService {
 
         stateMachine.validate(currentState, RequestState.PUBLISHED);
 
-        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
-
+        /*
+         * PublicationNumberGenerator performs:
+         *
+         * 1 initial attempt
+         * +
+         * 3 retries
+         * +
+         * 1 second delay between attempts
+         *
+         * If all attempts fail, it throws
+         * DatabaseRetryException.
+         */
         Long publicationNumber = publicationNumberGenerator.next();
+
+        OffsetDateTime now = OffsetDateTime.now(ZoneOffset.UTC);
 
         entity.changeState(RequestState.PUBLISHED, null, publicationNumber, now);
 
@@ -210,6 +246,11 @@ public class RequestService {
         return RequestResponse.from(entity);
     }
 
+    /**
+     * Logically deletes a request.
+     * <p>
+     * Deletion is allowed only from CREATED state.
+     */
     @Transactional
     @CacheEvict(cacheNames = "requests", key = "#id")
     @RateLimiter(name = "requestWrite")
@@ -217,7 +258,6 @@ public class RequestService {
     public RequestResponse delete(long id, String reason, String actor) {
 
         validatePositiveId(id);
-
         validateActor(actor);
 
         String normalizedReason = normalizeRequired(reason, "A reason is required when deleting a request");
@@ -232,6 +272,9 @@ public class RequestService {
         return changeState(entity, RequestState.DELETED, normalizedReason, actor);
     }
 
+    /**
+     * Returns complete audit history.
+     */
     @Transactional(readOnly = true)
     @RateLimiter(name = "requestRead")
     @Bulkhead(name = "requestRead", type = Bulkhead.Type.SEMAPHORE)
@@ -239,16 +282,22 @@ public class RequestService {
 
         validatePositiveId(id);
 
+        /*
+         * Also validates that the request exists.
+         */
         getEntity(id);
 
         return auditRepository.findByRequestIdOrderByOccurredAtAscIdAsc(id).stream().map(AuditResponse::from).toList();
     }
 
+    /**
+     * Changes request state after validating
+     * the transition using the state machine.
+     */
     private RequestResponse changeState(long id, RequestState targetState, String reason, String actor) {
 
         return changeState(getEntity(id), targetState, reason, actor);
     }
-
 
     private RequestResponse changeState(RequestEntity entity, RequestState targetState, String reason, String actor) {
 
@@ -271,10 +320,9 @@ public class RequestService {
 
         if (state != RequestState.CREATED && state != RequestState.VERIFIED) {
 
-            throw new BusinessRuleViolationException("Content may only be modified while request is CREATED or VERIFIED");
+            throw new BusinessRuleViolationException("Content may only be modified while request " + "is CREATED or VERIFIED");
         }
     }
-
 
     private void validateActor(String actor) {
 
@@ -284,7 +332,6 @@ public class RequestService {
         }
     }
 
-
     private void validatePositiveId(long id) {
 
         if (id <= 0) {
@@ -293,18 +340,15 @@ public class RequestService {
         }
     }
 
-
     private static String normalizeRequired(String value, String errorMessage) {
 
         if (value == null) {
-
             throw new BusinessRuleViolationException(errorMessage);
         }
 
         String normalized = value.trim();
 
         if (normalized.isBlank()) {
-
             throw new BusinessRuleViolationException(errorMessage);
         }
 
@@ -324,7 +368,6 @@ public class RequestService {
 
         return PageRequest.of(pageNumber, pageSize, normalizeSort(pageable.getSort()));
     }
-
 
     private static Sort normalizeSort(Sort requestedSort) {
 
