@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<configuration>
+
+    <!-- ============================================================= -->
+    <!-- PROPERTIES                                                    -->
+    <!-- ============================================================= -->
+
+    <property name="LOG_DIR" value="${LOG_DIR:-logs}"/>
+
+    <property name="APP_NAME"
+              value="${spring.application.name:-request-management-application}"/>
+
+    <!-- ============================================================= -->
+    <!-- CONSOLE APPENDER                                              -->
+    <!-- ============================================================= -->
+
+    <appender name="CONSOLE"
+              class="ch.qos.logback.core.ConsoleAppender">
+
+        <encoder>
+            <pattern>
+                %d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n
+            </pattern>
+        </encoder>
+
+    </appender>
+
+    <!-- ============================================================= -->
+    <!-- FILE APPENDER                                                 -->
+    <!-- ============================================================= -->
+
+    <appender name="FILE"
+              class="ch.qos.logback.core.rolling.RollingFileAppender">
+
+        <file>${LOG_DIR}/${APP_NAME}.log</file>
+
+        <encoder>
+            <pattern>
+                %d{yyyy-MM-dd HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n
+            </pattern>
+        </encoder>
+
+        <!-- ========================================================= -->
+        <!-- ROLLING POLICY                                            -->
+        <!-- ========================================================= -->
+
+        <rollingPolicy
+                class="ch.qos.logback.core.rolling.SizeAndTimeBasedRollingPolicy">
+
+            <fileNamePattern>
+                ${LOG_DIR}/archive/${APP_NAME}.%d{yyyy-MM-dd}.%i.log.gz
+            </fileNamePattern>
+
+            <maxFileSize>50MB</maxFileSize>
+
+            <maxHistory>30</maxHistory>
+
+            <totalSizeCap>2GB</totalSizeCap>
+
+        </rollingPolicy>
+
+    </appender>
+
+    <!-- ============================================================= -->
+    <!-- APPLICATION LOGGING                                          -->
+    <!-- ============================================================= -->
+
+    <logger name="com.example.requestmanagement"
+            level="INFO"/>
+
+    <!-- ============================================================= -->
+    <!-- SPRING LOGGING                                                -->
+    <!-- ============================================================= -->
+
+    <logger name="org.springframework"
+            level="WARN"/>
+
+    <!-- ============================================================= -->
+    <!-- HIBERNATE LOGGING                                             -->
+    <!-- ============================================================= -->
+
+    <logger name="org.hibernate"
+            level="WARN"/>
+
+    <!-- ============================================================= -->
+    <!-- ROOT LOGGER                                                   -->
+    <!-- ============================================================= -->
+
+    <root level="INFO">
+
+        <appender-ref ref="CONSOLE"/>
+
+        <appender-ref ref="FILE"/>
+
+    </root>
+
+</configuration>
